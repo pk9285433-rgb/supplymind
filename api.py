@@ -7,10 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import date, timedelta
 import uvicorn
-import nest_asyncio
 
-# Fix async issue
-nest_asyncio.apply()
 
 # PostgreSQL connection
 import os
