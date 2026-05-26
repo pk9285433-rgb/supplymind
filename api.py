@@ -286,7 +286,7 @@ def compute_risk_score(s):
     return round(max(score, 0), 1)
 
 @app.get("/api/analytics/supplier-risks")
-def get_supplier_risks():
+def get_supplier_risks(db: Session = Depends(get_db)):
     suppliers = db.query(Supplier).all()
     
     return [
