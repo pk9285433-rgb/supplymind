@@ -1,8 +1,9 @@
+import os
+
 import pandas as pd
 from sqlalchemy import create_engine
-
 engine = create_engine(
-   'postgresql://postgres:skillvance2025@localhost:5432/postgres'
+    "postgresql://postgres.mtgtxjahbovxgpummxfl:gKGFf2AgnNvEjDGw@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres"
 )
 
 tables = {

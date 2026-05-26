@@ -15,8 +15,8 @@ nest_asyncio.apply()
 # PostgreSQL connection
 import os
 engine = create_engine(
-    os.environ.get("DATABASE_URL", 
-    "postgresql://postgres:skillvance2025@localhost:5432/postgres")
+    os.environ.get("DATABASE_URL",
+    "postgresql://postgres.mtgtxjahbovxgpummxfl:gKGFf2AgnNvEjDGw@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
 )
 
 # FastAPI app
@@ -467,4 +467,5 @@ def inventory_summary():
         return {"error": str(e)}
 
 
-uvicorn.run(app, host="0.0.0.0", port=8001)
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8001)
