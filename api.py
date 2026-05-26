@@ -266,6 +266,25 @@ def disruption_risks():
     return result.to_dict(orient='records')
 
 
+def compute_risk_score(s):
+    score = 100
+    # Penalize low OTIF
+    if s.otif_percentage < 40:
+        score -= 40
+    elif s.otif_percentage < 70:
+        score -= 20
+    # Penalize high lead time
+    if s.avg_lead_time_days > 20:
+        score -= 20
+    elif s.avg_lead_time_days > 10:
+        score -= 10
+    # Penalize low fill rate
+    if s.fill_rate < 70:
+        score -= 20
+    elif s.fill_rate < 85:
+        score -= 10
+    return round(max(score, 0), 1)
+
 @app.get("/api/analytics/supplier-risks")
 def get_supplier_risks():
     suppliers = db.query(Supplier).all()
@@ -274,12 +293,12 @@ def get_supplier_risks():
         {
             "supplier_id": s.supplier_id,
             "city": s.city,
-            "tier": s.tier,
+            "tier": s.city_tier,
             "current_otif": s.otif_percentage,
-            "avg_lead_time_days": s.lead_time_days,
+            "avg_lead_time_days": s.avg_lead_time_days,
             "fill_rate_pct": s.fill_rate,
-            "risk_score": s.risk_score,
-            "risk_tier": s.risk_tier,
+            "risk_score": compute_risk_score(s),
+            "risk_tier": "High" if s.otif_percentage < 40 else "Medium" if s.otif_percentage < 70 else "Low",
             "trend": "Stable"
         }
         for s in suppliers
