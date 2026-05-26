@@ -267,30 +267,23 @@ def disruption_risks():
 
 
 @app.get("/api/analytics/supplier-risks")
-def supplier_risks():
-
-    query = """
-    SELECT
-      s.supplier_id,
-      s.city_tier,
-      sp.otif_percentage as current_otif,
-      sp.avg_lead_time_days,
-      sp.fill_rate_pct
-    FROM suppliers s
-    JOIN supplier_performance sp
-      ON s.supplier_id = sp.supplier_id
-    WHERE sp.month = (
-      SELECT MAX(month)
-      FROM supplier_performance
-    )
-    AND sp.otif_percentage < 75
-    ORDER BY sp.otif_percentage ASC
-    LIMIT 10
-    """
-
-    result = pd.read_sql(query, engine)
-
-    return result.to_dict(orient='records')
+def get_supplier_risks():
+    suppliers = db.query(Supplier).all()
+    
+    return [
+        {
+            "supplier_id": s.supplier_id,
+            "city": s.city,
+            "tier": s.tier,
+            "current_otif": s.otif_percentage,
+            "avg_lead_time_days": s.lead_time_days,
+            "fill_rate_pct": s.fill_rate,
+            "risk_score": s.risk_score,
+            "risk_tier": s.risk_tier,
+            "trend": "Stable"
+        }
+        for s in suppliers
+    ]
 
 
 @app.get(
@@ -462,6 +455,7 @@ def inventory_summary():
 
     except Exception as e:
         return {"error": str(e)}
+    
 
 
 if __name__ == "__main__":
