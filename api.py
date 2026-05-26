@@ -265,46 +265,40 @@ def disruption_risks():
 
     return result.to_dict(orient='records')
 
-
-def compute_risk_score(s):
-    score = 100
-    # Penalize low OTIF
-    if s.otif_percentage < 40:
-        score -= 40
-    elif s.otif_percentage < 70:
-        score -= 20
-    # Penalize high lead time
-    if s.avg_lead_time_days > 20:
-        score -= 20
-    elif s.avg_lead_time_days > 10:
-        score -= 10
-    # Penalize low fill rate
-    if s.fill_rate < 70:
-        score -= 20
-    elif s.fill_rate < 85:
-        score -= 10
-    return round(max(score, 0), 1)
-
 @app.get("/api/analytics/supplier-risks")
-def get_supplier_risks(db: Session = Depends(get_db)):
-    suppliers = db.query(Supplier).all()
+def get_supplier_risks():
+    try:
+        df = pd.read_sql("SELECT * FROM suppliers", engine)
+        
+        result = []
+        for _, s in df.iterrows():
+            fill_rate = s.get("fill_rate", 80)
+            otif = s.get("otif_percentage", 70)
+            lead_time = s.get("avg_lead_time_days", 10)
+            
+            score = 100
+            if otif < 40: score -= 40
+            elif otif < 70: score -= 20
+            if lead_time > 20: score -= 20
+            elif lead_time > 10: score -= 10
+            if fill_rate < 70: score -= 20
+            elif fill_rate < 85: score -= 10
+            
+            result.append({
+                "supplier_id": s.get("supplier_id"),
+                "city": s.get("city"),
+                "tier": s.get("city_tier"),
+                "current_otif": otif,
+                "avg_lead_time_days": lead_time,
+                "fill_rate_pct": fill_rate,
+                "risk_score": round(max(score, 0), 1),
+                "risk_tier": "High" if otif < 40 else "Medium" if otif < 70 else "Low",
+                "trend": "Stable"
+            })
+        return result
+    except Exception as e:
+        return {"error": str(e)}
     
-    return [
-        {
-            "supplier_id": s.supplier_id,
-            "city": s.city,
-            "tier": s.city_tier,
-            "current_otif": s.otif_percentage,
-            "avg_lead_time_days": s.avg_lead_time_days,
-            "fill_rate_pct": s.fill_rate,
-            "risk_score": compute_risk_score(s),
-            "risk_tier": "High" if s.otif_percentage < 40 else "Medium" if s.otif_percentage < 70 else "Low",
-            "trend": "Stable"
-        }
-        for s in suppliers
-    ]
-
-
 @app.get(
     "/api/analytics/forecast-accuracy",
     summary="Forecast Accuracy Metrics",
