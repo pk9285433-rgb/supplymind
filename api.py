@@ -468,8 +468,29 @@ def inventory_summary():
 
     except Exception as e:
         return {"error": str(e)}
-    
+@app.get("/api/analytics/supplier-details")
+def get_supplier_details(supplier_id: str):
+    try:
+        df = pd.read_sql(
+            "SELECT * FROM suppliers WHERE supplier_id = %(sid)s",
+            engine,
+            params={"sid": supplier_id}
+        )
 
+        if df.empty:
+            return {"error": f"Supplier {supplier_id} not found"}
 
+        s = df.iloc[0]
+
+        return {
+            "supplier_id": str(s.get("supplier_id", "")),
+            "city": str(s.get("city", "")),
+            "tier": str(s.get("city_tier", "")),
+            "current_otif": float(s.get("otif_percentage", 0)),
+            "avg_lead_time_days": float(s.get("avg_lead_time_days", 0)),
+            "fill_rate_pct": float(s.get("fill_rate", 0))
+        }
+    except Exception as e:
+        return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
