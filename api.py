@@ -500,6 +500,12 @@ def get_supplier_details(supplier_id: str):
             otif = 0.0
             fill = 0.0
             trend = []
+        skus_df = pd.read_sql(
+            "SELECT DISTINCT sku_id FROM purchase_orders WHERE supplier_id = %(sid)s LIMIT 10",
+            engine,
+            params={"sid": supplier_id}
+        )
+        sku_list = skus_df["sku_id"].tolist() if not skus_df.empty else []
 
         return {
             "supplier_id": str(s.get("supplier_id", "")),
@@ -509,7 +515,8 @@ def get_supplier_details(supplier_id: str):
             "avg_lead_time_days": float(s.get("avg_lead_time_days") or 0),
             "fill_rate_pct": fill,
             "trend": trend,
-            "skus": ["SKU-0001", "SKU-0002", "SKU-0003"]
+            "skus": sku_list,
+            "supplied_skus": sku_list
         }
     except Exception as e:
         return {"error": str(e)}
