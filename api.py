@@ -470,33 +470,41 @@ def inventory_summary():
     except Exception as e:
         return {"error": str(e)}
 @app.get("/api/analytics/supplier-details")
-@app.get("/api/analytics/supplier-details")
 def get_supplier_details(supplier_id: str):
-    supplier = supplier_df[
-        supplier_df["supplier_id"] == supplier_id
-    ]
+    try:
+        supplier = supplier_df[
+            supplier_df["supplier_id"] == supplier_id
+        ]
 
-    if supplier.empty:
-        return {"detail": "Not Found"}
+        if supplier.empty:
+            return {"detail": "Not Found"}
 
-    supplier = supplier.iloc[0]
+        s = supplier.iloc[0].to_dict()
 
-    return {
-        "supplier_id": supplier["supplier_id"],
-        "city": supplier["city"],
-        "tier": supplier["city_tier"],
-        "current_otif": float(supplier["otif_percentage"] or 0),
-        "avg_lead_time_days": float(supplier["avg_lead_time_days"] or 0),
-        "fill_rate_pct": float(supplier["fill_rate"] or 0),
-        "trend": [
-            {"month": "Jan", "otif": float(supplier["otif_percentage"] or 0) - 5},
-            {"month": "Feb", "otif": float(supplier["otif_percentage"] or 0) - 3},
-            {"month": "Mar", "otif": float(supplier["otif_percentage"] or 0) - 2},
-            {"month": "Apr", "otif": float(supplier["otif_percentage"] or 0)},
-            {"month": "May", "otif": float(supplier["otif_percentage"] or 0) + 1},
-            {"month": "Jun", "otif": float(supplier["otif_percentage"] or 0) + 2}
-        ],
-        "skus": ["SKU-0001", "SKU-0002", "SKU-0003"]
-    }
+        otif = float(s.get("otif_percentage") or s.get("current_otif") or s.get("otif") or 0)
+        lead = float(s.get("avg_lead_time_days") or s.get("lead_time_days") or 0)
+        fill = float(s.get("fill_rate") or s.get("fill_rate_pct") or 0)
+        tier = str(s.get("city_tier") or s.get("tier") or "")
+        city = str(s.get("city") or "")
+
+        return {
+            "supplier_id": str(s.get("supplier_id", "")),
+            "city": city,
+            "tier": tier,
+            "current_otif": otif,
+            "avg_lead_time_days": lead,
+            "fill_rate_pct": fill,
+            "trend": [
+                {"month": "Jan", "otif": otif - 5},
+                {"month": "Feb", "otif": otif - 3},
+                {"month": "Mar", "otif": otif - 2},
+                {"month": "Apr", "otif": otif},
+                {"month": "May", "otif": otif + 1},
+                {"month": "Jun", "otif": otif + 2}
+            ],
+            "skus": ["SKU-0001", "SKU-0002", "SKU-0003"]
+        }
+    except Exception as e:
+        return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
