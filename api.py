@@ -269,37 +269,51 @@ def disruption_risks():
 @app.get("/api/analytics/supplier-risks")
 def get_supplier_risks():
     try:
-        df = pd.read_sql("SELECT * FROM suppliers", engine)
-        
+        df = pd.read_sql("""
+            SELECT 
+                s.supplier_id,
+                s.city,
+                s.city_tier,
+                s.avg_lead_time_days,
+                AVG(p.otif_percentage) as current_otif,
+                AVG(p.fill_rate_pct) as fill_rate_pct
+            FROM suppliers s
+            LEFT JOIN supplier_performance p 
+                ON s.supplier_id = p.supplier_id
+            GROUP BY 
+                s.supplier_id, s.city, 
+                s.city_tier, s.avg_lead_time_days
+        """, engine)
+
         result = []
-        for _, s in df.iterrows():
-            fill_rate = s.get("fill_rate", 80)
-            otif = s.get("otif_percentage", 70)
-            lead_time = s.get("avg_lead_time_days", 10)
-            
+        for _, row in df.iterrows():
+            otif = float(row.get("current_otif") or 0)
+            lead = float(row.get("avg_lead_time_days") or 0)
+            fill = float(row.get("fill_rate_pct") or 0)
+
             score = 100
             if otif < 40: score -= 40
             elif otif < 70: score -= 20
-            if lead_time > 20: score -= 20
-            elif lead_time > 10: score -= 10
-            if fill_rate < 70: score -= 20
-            elif fill_rate < 85: score -= 10
-            
+            if lead > 20: score -= 20
+            elif lead > 10: score -= 10
+            if fill < 70: score -= 20
+            elif fill < 85: score -= 10
+
             result.append({
-                "supplier_id": s.get("supplier_id"),
-                "city": s.get("city"),
-                "tier": s.get("city_tier"),
-                "current_otif": otif,
-                "avg_lead_time_days": lead_time,
-                "fill_rate_pct": fill_rate,
+                "supplier_id": str(row.get("supplier_id", "")),
+                "city": str(row.get("city", "")),
+                "tier": str(row.get("city_tier", "")),
+                "current_otif": round(otif, 1),
+                "avg_lead_time_days": round(lead, 1),
+                "fill_rate_pct": round(fill, 1),
                 "risk_score": round(max(score, 0), 1),
                 "risk_tier": "High" if otif < 40 else "Medium" if otif < 70 else "Low",
-                "trend": "Stable"
+                "trend": "Improving" if otif > 80 else "Declining" if otif < 50 else "Stable"
             })
+
         return result
     except Exception as e:
         return {"error": str(e)}
-    
 @app.get(
     "/api/analytics/forecast-accuracy",
     summary="Forecast Accuracy Metrics",
