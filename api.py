@@ -472,36 +472,43 @@ def inventory_summary():
 @app.get("/api/analytics/supplier-details")
 def get_supplier_details(supplier_id: str):
     try:
-        supplier = supplier_df[
-            supplier_df["supplier_id"] == supplier_id
-        ]
-
-        if supplier.empty:
+        sup_df = pd.read_sql(
+            "SELECT * FROM suppliers WHERE supplier_id = %(sid)s",
+            engine, params={"sid": supplier_id}
+        )
+        if sup_df.empty:
             return {"detail": "Not Found"}
+        s = sup_df.iloc[0].to_dict()
 
-        s = supplier.iloc[0].to_dict()
+        perf_df = pd.read_sql(
+            "SELECT * FROM supplier_performance WHERE supplier_id = %(sid)s ORDER BY month DESC LIMIT 6",
+            engine, params={"sid": supplier_id}
+        )
 
-        otif = float(s.get("otif_percentage") or s.get("current_otif") or s.get("otif") or 0)
-        lead = float(s.get("avg_lead_time_days") or s.get("lead_time_days") or 0)
-        fill = float(s.get("fill_rate") or s.get("fill_rate_pct") or 0)
-        tier = str(s.get("city_tier") or s.get("tier") or "")
-        city = str(s.get("city") or "")
+        if not perf_df.empty:
+            latest = perf_df.iloc[0].to_dict()
+            otif = float(latest.get("otif_percentage") or 0)
+            fill = float(latest.get("fill_rate_pct") or 0)
+            trend = [
+                {
+                    "month": str(row.get("month", "")),
+                    "otif": float(row.get("otif_percentage") or 0)
+                }
+                for row in perf_df.to_dict(orient="records")
+            ]
+        else:
+            otif = 0.0
+            fill = 0.0
+            trend = []
 
         return {
             "supplier_id": str(s.get("supplier_id", "")),
-            "city": city,
-            "tier": tier,
+            "city": str(s.get("city", "")),
+            "tier": str(s.get("city_tier", "")),
             "current_otif": otif,
-            "avg_lead_time_days": lead,
+            "avg_lead_time_days": float(s.get("avg_lead_time_days") or 0),
             "fill_rate_pct": fill,
-            "trend": [
-                {"month": "Jan", "otif": otif - 5},
-                {"month": "Feb", "otif": otif - 3},
-                {"month": "Mar", "otif": otif - 2},
-                {"month": "Apr", "otif": otif},
-                {"month": "May", "otif": otif + 1},
-                {"month": "Jun", "otif": otif + 2}
-            ],
+            "trend": trend,
             "skus": ["SKU-0001", "SKU-0002", "SKU-0003"]
         }
     except Exception as e:
