@@ -482,13 +482,38 @@ def get_supplier_details(supplier_id: str):
 
         s = df.iloc[0]
 
+        # Get SKUs for this supplier
+        skus_df = pd.read_sql(
+            "SELECT DISTINCT sku_id FROM purchase_orders WHERE supplier_id = %(sid)s LIMIT 10",
+            engine,
+            params={"sid": supplier_id}
+        )
+        sku_list = skus_df["sku_id"].tolist() if not skus_df.empty else []
+
+        # Get performance trend
+        trend_df = pd.read_sql(
+            """
+            SELECT DATE_TRUNC('month', date) as month,
+                   AVG(otif_percentage) as otif
+            FROM supplier_performance
+            WHERE supplier_id = %(sid)s
+            ORDER BY month DESC
+            LIMIT 6
+            """,
+            engine,
+            params={"sid": supplier_id}
+        )
+        trend = trend_df.to_dict(orient="records") if not trend_df.empty else []
+
         return {
             "supplier_id": str(s.get("supplier_id", "")),
             "city": str(s.get("city", "")),
             "tier": str(s.get("city_tier", "")),
-            "current_otif": float(s.get("otif_percentage", 0)),
-            "avg_lead_time_days": float(s.get("avg_lead_time_days", 0)),
-            "fill_rate_pct": float(s.get("fill_rate", 0))
+            "current_otif": float(s.get("otif_percentage") or 0),
+            "avg_lead_time_days": float(s.get("avg_lead_time_days") or 0),
+            "fill_rate_pct": float(s.get("fill_rate") or 0),
+            "performance_trend": trend,
+            "skus": sku_list
         }
     except Exception as e:
         return {"error": str(e)}
