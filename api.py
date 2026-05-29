@@ -238,26 +238,56 @@ def disruption_risks():
     query = """
     SELECT
       sk.sku_name,
+
       sk.category,
+
       ip.closing_stock_units,
+
+      ip.daily_consumption_units,
+
       ip.days_of_cover,
+
       sk.reorder_point_units,
+
+      sp.otif_percentage,
+
+      sp.avg_lead_time_days as lead_time_days,
+
+      sp.supplier_id as alternate_supplier,
+
       CASE
         WHEN ip.days_of_cover < 7
         THEN 'Critical'
+
         WHEN ip.days_of_cover < 14
         THEN 'Warning'
+
         ELSE 'Monitor'
+
       END as urgency
+
     FROM skus sk
+
     JOIN inventory_positions ip
       ON sk.sku_id = ip.sku_id
+
+    JOIN supplier_performance sp
+      ON sk.primary_supplier_id = sp.supplier_id
+
     WHERE ip.date = (
       SELECT MAX(date)
       FROM inventory_positions
     )
+
+    AND sp.month = (
+      SELECT MAX(month)
+      FROM supplier_performance
+    )
+
     AND ip.days_of_cover < 14
+
     ORDER BY ip.days_of_cover ASC
+
     LIMIT 20
     """
 
