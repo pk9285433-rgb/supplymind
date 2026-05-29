@@ -12,8 +12,7 @@ import uvicorn
 # PostgreSQL connection
 import os
 engine = create_engine(
-    os.environ.get("DATABASE_URL",
-    "postgresql://postgres.mtgtxjahbovxgpummxfl:gKGFf2AgnNvEjDGw@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
+    os.environ.get("DATABASE_URL")
 )
 supplier_df=pd.read_sql("SELECT * FROM suppliers",engine)
 
