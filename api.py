@@ -478,19 +478,27 @@ def inventory_summary():
         """, engine)
 
         top_critical = pd.read_sql("""
-            SELECT
-                sk.sku_name,
-                ip.days_of_cover
-            FROM inventory_positions ip
-            JOIN skus sk
-                ON ip.sku_id = sk.sku_id
-            WHERE ip.date = (
-                SELECT MAX(date)
-                FROM inventory_positions
-            )
-            ORDER BY ip.days_of_cover ASC
-            LIMIT 3
-        """, engine)
+    SELECT
+        sk.sku_name,
+        ip.days_of_cover,
+        ip.closing_stock_units as current_stock,
+        sk.unit_cost_inr
+    FROM inventory_positions ip
+    JOIN skus sk
+        ON ip.sku_id = sk.sku_id
+    WHERE ip.date = (
+        SELECT MAX(date)
+        FROM inventory_positions
+    )
+    ORDER BY ip.days_of_cover ASC
+    LIMIT 3
+""", engine)
+        total_inventory_value = int(pd.read_sql("""
+    SELECT SUM(ip.closing_stock_units * sk.unit_cost_inr) as total
+    FROM inventory_positions ip
+    JOIN skus sk ON ip.sku_id = sk.sku_id
+    WHERE ip.date = (SELECT MAX(date) FROM inventory_positions)
+""", engine).iloc[0]["total"] or 0)
 
         return {
             "report_date": str(date.today()),
@@ -502,12 +510,18 @@ def inventory_summary():
                 int(summary.iloc[0]['warning_skus']),
             "healthy_skus":
                 int(summary.iloc[0]['healthy_skus']),
-            "total_inventory_value": 0,
+            "total_inventory_value": total_inventory_value,
             "stockout_risk_value": 0,
             "avg_days_of_cover":
                 float(summary.iloc[0]['avg_days_of_cover']),
-            "top_3_critical":
-                top_critical.to_dict(orient='records')
+            "top_3_critical": [
+    {
+        "sku_name": row["sku_name"],
+        "days_of_cover": round(float(row["days_of_cover"]), 1),
+        "current_stock": int(row["current_stock"] or 0)
+    }
+    for _, row in top_critical.iterrows()
+]
         }
 
     except Exception as e:
