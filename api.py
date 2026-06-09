@@ -20,7 +20,9 @@ logging.basicConfig(
 )
 
 def log_request(endpoint, latency_ms, row_count, status):
-    logging.info(f"{datetime.now()} | {endpoint} | {latency_ms}ms | rows:{row_count} | {status}")
+    msg = f"{datetime.now()} | {endpoint} | {latency_ms}ms | rows:{row_count} | {status}"
+    print(msg)
+    logging.info(msg)
 
 
 # PostgreSQL connection
