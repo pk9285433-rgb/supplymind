@@ -443,7 +443,7 @@ def forecast_accuracy():
         if math.isnan(avg_mape) or math.isinf(avg_mape):
             avg_mape = 0.0
         latency = round((time.time() - start) * 1000, 2)
-        log_request("forecast-accuracy", latency, 0 ,len(skus_list), "200")
+        log_request("forecast-accuracy", latency,len(skus_list), "200")
 
         return {
             "report_date":  str(date.today()),
