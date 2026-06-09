@@ -1,3 +1,5 @@
+from tracemalloc import start
+
 import pandas as pd
 import numpy as np
 import math
@@ -7,12 +9,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import date, timedelta
 import uvicorn
+import time
+import logging
+from datetime import datetime
+
+logging.basicConfig(
+    filename='analytics_api.log',
+    level=logging.INFO,
+    format='%(message)s'
+)
+
+def log_request(endpoint, latency_ms, row_count, status):
+    logging.info(f"{datetime.now()} | {endpoint} | {latency_ms}ms | rows:{row_count} | {status}")
 
 
 # PostgreSQL connection
 import os
 engine = create_engine(
-    os.environ.get("DATABASE_URL")
+    os.environ.get("DATABASE_URL","postgresql://postgres.mtgtxjahbovxgpummxfl:gKGFf2AgnNvEjDGw@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
 )
 supplier_df=pd.read_sql("SELECT * FROM suppliers",engine)
 
@@ -27,7 +41,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # KPI Cache
 cached_kpis = {}
 
@@ -233,10 +246,11 @@ def health():
 
 
 @app.get("/api/analytics/disruption-risks")
-def disruption_risks():
-
-    query = """
-    SELECT
+def get_disruption_risks():
+    start = time.time()
+    try:
+        query = """
+            SELECT
       sk.sku_name,
 
       sk.category,
@@ -289,14 +303,19 @@ def disruption_risks():
     ORDER BY ip.days_of_cover ASC
 
     LIMIT 20
-    """
-
-    result = pd.read_sql(query, engine)
-
-    return result.to_dict(orient='records')
+        """
+        result = pd.read_sql(query, engine)
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("disruption-risks", latency, len(result), "200")
+        return result.to_dict(orient="records")
+    except Exception as e:
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("disruption-risks", latency, 0, f"ERROR: {str(e)}")
+        return {"error": str(e)}
 
 @app.get("/api/analytics/supplier-risks")
 def get_supplier_risks():
+    start = time.time()
     try:
         df = pd.read_sql("""
             SELECT 
@@ -339,9 +358,12 @@ def get_supplier_risks():
                 "risk_tier": "High" if otif < 40 else "Medium" if otif < 70 else "Low",
                 "trend": "Improving" if otif > 80 else "Declining" if otif < 50 else "Stable"
             })
-
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("supplier-risks", latency, len(result), "200")
         return result
     except Exception as e:
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("supplier-risks", latency, 0, f"ERROR: {str(e)}")
         return {"error": str(e)}
 @app.get(
     "/api/analytics/forecast-accuracy",
@@ -349,6 +371,7 @@ def get_supplier_risks():
     description="Returns 30-day MAPE forecast accuracy metrics for all SKUs"
 )
 def forecast_accuracy():
+    start = time.time()
 
     try:
 
@@ -417,6 +440,8 @@ def forecast_accuracy():
         avg_mape = result['mape_30day'].mean()
         if math.isnan(avg_mape) or math.isinf(avg_mape):
             avg_mape = 0.0
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("forecast-accuracy", latency, 0 ,len(skus_list), "200")
 
         return {
             "report_date":  str(date.today()),
@@ -426,6 +451,8 @@ def forecast_accuracy():
         }
 
     except Exception as e:
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("forecast-accuracy", latency, 0, f"ERROR: {str(e)}")
         return {"error": str(e)}
 
 
@@ -435,6 +462,7 @@ def forecast_accuracy():
     description="Returns inventory risk KPIs and top critical SKUs"
 )
 def inventory_summary():
+    start = time.time()
 
     try:
        # Thresholds adjusted because this dataset
@@ -499,6 +527,9 @@ def inventory_summary():
     JOIN skus sk ON ip.sku_id = sk.sku_id
     WHERE ip.date = (SELECT MAX(date) FROM inventory_positions)
 """, engine).iloc[0]["total"] or 0)
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("inventory_summary", latency, 1, "200")
+        
 
         return {
             "report_date": str(date.today()),
@@ -525,9 +556,12 @@ def inventory_summary():
         }
 
     except Exception as e:
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("inventory_summary", latency, 0, f"ERROR: {str(e)}")
         return {"error": str(e)}
 @app.get("/api/analytics/supplier-details")
 def get_supplier_details(supplier_id: str):
+    start = time.time()
     try:
         sup_df = pd.read_sql(
             "SELECT * FROM suppliers WHERE supplier_id = %(sid)s",
@@ -563,7 +597,8 @@ def get_supplier_details(supplier_id: str):
             params={"sid": supplier_id}
         )
         sku_list = skus_df["sku_id"].tolist() if not skus_df.empty else []
-
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("supplier-details", latency,1,"200")
         return {
             "supplier_id": str(s.get("supplier_id", "")),
             "city": str(s.get("city", "")),
@@ -576,6 +611,8 @@ def get_supplier_details(supplier_id: str):
             "supplied_skus": sku_list
         }
     except Exception as e:
+        latency = round((time.time() - start) * 1000, 2)
+        log_request("supplier-details",latency,0,f"ERROR: {str(e)}")
         return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
