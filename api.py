@@ -660,5 +660,209 @@ def inventory_detail(status: str = None, category: str = None):
         latency = round((time.time()-start)*1000, 2)
         log_request("inventory-detail", latency, 0, f"ERROR:{str(e)}")
         return {"error": str(e)}
+@app.get("/api/analytics/supplier-scorecard/{supplier_id}")
+def supplier_scorecard(supplier_id: str):
+    start = time.time()
+    try:
+        # Get supplier info
+        sup_df = pd.read_sql("""
+            SELECT s.supplier_id, s.supplier_name,
+                   s.category, s.city, s.city_tier,
+                   s.avg_lead_time_days
+            FROM suppliers s
+            WHERE s.supplier_id = %(sid)s
+        """, engine, params={"sid": supplier_id})
+
+        if sup_df.empty:
+            return {"detail": "Supplier not found"}
+
+        sup = sup_df.iloc[0].to_dict()
+        category = sup.get("category", "")
+
+        # Get this supplier performance
+        perf_df = pd.read_sql("""
+            SELECT AVG(otif_percentage) as avg_otif,
+                   AVG(fill_rate_pct) as avg_fill_rate,
+                   AVG(quality_reject_rate_pct) as avg_quality_reject,
+                   AVG(avg_lead_time_days) as avg_lead_time
+            FROM supplier_performance
+            WHERE supplier_id = %(sid)s
+        """, engine, params={"sid": supplier_id})
+
+        if perf_df.empty:
+            return {"detail": "No performance data found"}
+
+        p = perf_df.iloc[0].to_dict()
+        supplier_otif = float(p.get("avg_otif") or 0)
+        supplier_fill = float(p.get("avg_fill_rate") or 0)
+        supplier_quality = float(p.get("avg_quality_reject") or 0)
+        supplier_lead = float(p.get("avg_lead_time") or 0)
+
+        # Get all suppliers in same category for benchmarking
+        peers_df = pd.read_sql("""
+            SELECT sp.supplier_id,
+                   AVG(sp.otif_percentage) as avg_otif,
+                   AVG(sp.fill_rate_pct) as avg_fill_rate,
+                   AVG(sp.quality_reject_rate_pct) as avg_quality,
+                   AVG(sp.avg_lead_time_days) as avg_lead_time
+            FROM supplier_performance sp
+            JOIN suppliers s ON sp.supplier_id = s.supplier_id
+            WHERE s.category = %(cat)s
+            GROUP BY sp.supplier_id
+        """, engine, params={"cat": category})
+
+        # Calculate percentiles
+        def percentile_rank(value, series):
+            series = series.dropna()
+            if len(series) == 0:
+                return 50
+            below = (series < value).sum()
+            return round((below / len(series)) * 100, 1)
+
+        otif_percentile = percentile_rank(
+            supplier_otif, peers_df["avg_otif"])
+        fill_percentile = percentile_rank(
+            supplier_fill, peers_df["avg_fill_rate"])
+        quality_percentile = percentile_rank(
+            supplier_quality,
+            peers_df["avg_quality"].max() - peers_df["avg_quality"])
+
+        # Industry averages
+        industry_avg_otif = round(
+            float(peers_df["avg_otif"].mean()), 1)
+        industry_avg_fill = round(
+            float(peers_df["avg_fill_rate"].mean()), 1)
+        best_otif = round(
+            float(peers_df["avg_otif"].max()), 1)
+        best_fill = round(
+            float(peers_df["avg_fill_rate"].max()), 1)
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-scorecard", latency, 1, "200")
+
+        return {
+            "supplier_id": supplier_id,
+            "supplier_name": sup.get("supplier_name", ""),
+            "category": category,
+            "city": sup.get("city", ""),
+            "tier": sup.get("city_tier", ""),
+            "kpis": {
+                "otif_pct": round(supplier_otif, 1),
+                "fill_rate_pct": round(supplier_fill, 1),
+                "quality_reject_pct": round(supplier_quality, 1),
+                "avg_lead_time_days": round(supplier_lead, 1)
+            },
+            "benchmarks": {
+                "otif_percentile": otif_percentile,
+                "fill_rate_percentile": fill_percentile,
+                "quality_percentile": quality_percentile,
+                "otif_vs_industry_avg": round(
+                    supplier_otif - industry_avg_otif, 1),
+                "fill_vs_industry_avg": round(
+                    supplier_fill - industry_avg_fill, 1),
+                "industry_avg_otif": industry_avg_otif,
+                "industry_avg_fill": industry_avg_fill,
+                "best_otif_in_category": best_otif,
+                "best_fill_in_category": best_fill
+            },
+            "benchmark_summary": f"This supplier's OTIF is better than {otif_percentile}% of similar suppliers in {category} category",
+            "peer_count": len(peers_df)
+        }
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-scorecard", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
+@app.get("/api/analytics/supplier-peers/{supplier_id}")
+def supplier_peers(supplier_id: str):
+    start = time.time()
+    try:
+        # Get supplier category
+        sup_df = pd.read_sql("""
+            SELECT supplier_id, supplier_name,
+                   category, city_tier
+            FROM suppliers
+            WHERE supplier_id = %(sid)s
+        """, engine, params={"sid": supplier_id})
+
+        if sup_df.empty:
+            return {"detail": "Supplier not found"}
+
+        sup = sup_df.iloc[0].to_dict()
+        category = sup.get("category", "")
+
+        # Get all peers in same category
+        peers_df = pd.read_sql("""
+            SELECT
+                s.supplier_id,
+                s.supplier_name,
+                s.city,
+                AVG(sp.otif_percentage) as avg_otif,
+                AVG(sp.fill_rate_pct) as avg_fill_rate,
+                AVG(sp.quality_reject_rate_pct) as avg_quality
+            FROM supplier_performance sp
+            JOIN suppliers s ON sp.supplier_id = s.supplier_id
+            WHERE s.category = %(cat)s
+            GROUP BY s.supplier_id, s.supplier_name, s.city
+            ORDER BY avg_otif DESC
+        """, engine, params={"cat": category})
+
+        if peers_df.empty:
+            return {"detail": "No peers found"}
+
+        # Top performer
+        top = peers_df.iloc[0].to_dict()
+
+        # Median performance
+        median_otif = round(
+            float(peers_df["avg_otif"].median()), 1)
+        median_fill = round(
+            float(peers_df["avg_fill_rate"].median()), 1)
+
+        # This supplier rank
+        supplier_row = peers_df[
+            peers_df["supplier_id"] == supplier_id]
+        rank = peers_df.index[
+            peers_df["supplier_id"] == supplier_id
+        ].tolist()
+        supplier_rank = rank[0] + 1 if rank else "N/A"
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-peers", latency,
+                   len(peers_df), "200")
+
+        return {
+            "supplier_id": supplier_id,
+            "supplier_name": sup.get("supplier_name", ""),
+            "peer_group": category,
+            "total_peers": len(peers_df),
+            "this_supplier_rank": supplier_rank,
+            "top_performer": {
+                "supplier_id": top.get("supplier_id"),
+                "supplier_name": top.get("supplier_name"),
+                "city": top.get("city"),
+                "avg_otif": round(float(top.get("avg_otif") or 0), 1),
+                "avg_fill_rate": round(float(top.get("avg_fill_rate") or 0), 1)
+            },
+            "median_performance": {
+                "avg_otif": median_otif,
+                "avg_fill_rate": median_fill
+            },
+            "peer_list": [
+                {
+                    "supplier_id": row["supplier_id"],
+                    "supplier_name": row["supplier_name"],
+                    "avg_otif": round(float(row["avg_otif"] or 0), 1),
+                    "avg_fill_rate": round(float(row["avg_fill_rate"] or 0), 1),
+                    "rank": i + 1
+                }
+                for i, (_, row) in enumerate(peers_df.iterrows())
+            ]
+        }
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-peers", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
