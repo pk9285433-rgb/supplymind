@@ -1029,5 +1029,150 @@ def supplier_actions(supplier_id: str):
         log_request("supplier-actions", latency, 0,
                    f"ERROR:{str(e)}")
         return {"error": str(e)}
+@app.get("/api/supplier-actions")
+def all_supplier_actions():
+    start = time.time()
+    try:
+        # Get all suppliers
+        suppliers_df = pd.read_sql("""
+            SELECT s.supplier_id, s.supplier_name,
+                   s.category, s.avg_lead_time_days
+            FROM suppliers s
+        """, engine)
+
+        # Get all performance data
+        perf_df = pd.read_sql("""
+            SELECT
+                supplier_id,
+                AVG(otif_percentage) as avg_otif,
+                AVG(fill_rate_pct) as avg_fill_rate,
+                AVG(quality_reject_rate_pct) as avg_quality,
+                AVG(avg_lead_time_days) as avg_lead_time,
+                AVG(capacity_utilization_pct) as avg_capacity
+            FROM supplier_performance
+            GROUP BY supplier_id
+        """, engine)
+
+        # Get peer averages by category
+        peer_df = pd.read_sql("""
+            SELECT s.category,
+                   AVG(sp.otif_percentage) as peer_avg_otif
+            FROM supplier_performance sp
+            JOIN suppliers s ON sp.supplier_id = s.supplier_id
+            GROUP BY s.category
+        """, engine)
+
+        peer_dict = dict(zip(
+            peer_df["category"],
+            peer_df["peer_avg_otif"]
+        ))
+
+        all_actions = []
+
+        for _, sup in suppliers_df.iterrows():
+            sid = sup["supplier_id"]
+            category = sup.get("category", "")
+
+            perf = perf_df[perf_df["supplier_id"] == sid]
+            if perf.empty:
+                continue
+
+            p = perf.iloc[0].to_dict()
+            otif = float(p.get("avg_otif") or 0)
+            fill = float(p.get("avg_fill_rate") or 0)
+            quality = float(p.get("avg_quality") or 0)
+            lead_time = float(p.get("avg_lead_time") or 0)
+            capacity = float(p.get("avg_capacity") or 0)
+            peer_avg = float(peer_dict.get(category) or 0)
+
+            actions = []
+
+            if otif < 70 and lead_time > 30:
+                actions.append({
+                    "action": "Schedule urgent meeting to discuss delivery",
+                    "reason": f"OTIF {round(otif,1)}% and lead time {round(lead_time,1)} days",
+                    "urgency": "URGENT",
+                    "act_within": "3 days"
+                })
+            elif otif < 70:
+                actions.append({
+                    "action": "Issue performance improvement notice",
+                    "reason": f"OTIF {round(otif,1)}% below 70% threshold",
+                    "urgency": "HIGH",
+                    "act_within": "1 week"
+                })
+            elif otif < peer_avg - 10:
+                actions.append({
+                    "action": "Schedule performance review meeting",
+                    "reason": f"OTIF {round(otif,1)}% is below peer average {round(peer_avg,1)}%",
+                    "urgency": "MEDIUM",
+                    "act_within": "2 weeks"
+                })
+
+            if quality > 5:
+                actions.append({
+                    "action": "Initiate quality audit immediately",
+                    "reason": f"Quality reject rate {round(quality,1)}% exceeds 5%",
+                    "urgency": "URGENT",
+                    "act_within": "3 days"
+                })
+            elif quality > 3:
+                actions.append({
+                    "action": "Request quality improvement plan",
+                    "reason": f"Quality reject rate {round(quality,1)}% above 3%",
+                    "urgency": "HIGH",
+                    "act_within": "1 week"
+                })
+
+            if lead_time > 30:
+                actions.append({
+                    "action": "Renegotiate lead time in contract",
+                    "reason": f"Lead time {round(lead_time,1)} days above 30 day target",
+                    "urgency": "HIGH",
+                    "act_within": "1 week"
+                })
+
+            if fill < 85:
+                actions.append({
+                    "action": "Review order fulfillment process",
+                    "reason": f"Fill rate {round(fill,1)}% below 85% minimum",
+                    "urgency": "HIGH",
+                    "act_within": "1 week"
+                })
+
+            if capacity > 90:
+                actions.append({
+                    "action": "Reduce order quantity and diversify sourcing",
+                    "reason": f"Capacity utilization {round(capacity,1)}% — risk of delays",
+                    "urgency": "MEDIUM",
+                    "act_within": "2 weeks"
+                })
+
+            if not actions:
+                actions.append({
+                    "action": "Continue monitoring — no action required",
+                    "reason": f"All KPIs within range: OTIF {round(otif,1)}%, Fill {round(fill,1)}%",
+                    "urgency": "LOW",
+                    "act_within": "Monitor"
+                })
+
+            all_actions.append({
+                "supplier_id": sid,
+                "supplier_name": sup.get("supplier_name", ""),
+                "category": category,
+                "total_actions": len(actions),
+                "recommended_actions": actions
+            })
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-actions-all", latency,
+                   len(all_actions), "200")
+        return all_actions
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-actions-all", latency,
+                   0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
