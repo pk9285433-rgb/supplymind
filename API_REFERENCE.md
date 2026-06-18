@@ -296,3 +296,232 @@ Urgency Levels:
 Error Codes:
 - 404: Supplier not found
 - 500: Server error
+
+--------
+---
+
+## Endpoint 10: GET /health
+
+Purpose: Check if the API is running
+and healthy.
+
+Parameters: None
+
+Example:
+GET /health
+
+Response:
+{
+  "status": "healthy",
+  "message": "SupplyMind Analytics API is running"
+}
+
+Error Codes:
+- 500: Server error
+
+---
+
+## Endpoint 11: GET /api/analytics/dashboard-summary
+
+Purpose: Get overall supply chain summary
+for the main dashboard command center.
+
+Parameters: None
+
+Example:
+GET /api/analytics/dashboard-summary
+
+Response:
+{
+  "total_suppliers": 200,
+  "total_skus": 50,
+  "critical_skus": 2,
+  "at_risk_suppliers": 5,
+  "avg_otif": 85.3,
+  "avg_days_of_cover": 43.6
+}
+
+Error Codes:
+- 500: Server error
+
+---
+
+## Endpoint 12: GET /api/analytics/refresh
+
+Purpose: Refresh the dashboard data
+and clear any cached values.
+
+Parameters: None
+
+Example:
+GET /api/analytics/refresh
+
+Response:
+{
+  "status": "refreshed",
+  "message": "Dashboard data refreshed successfully"
+}
+
+Error Codes:
+- 500: Server error
+
+---
+
+## Endpoint 13: GET /api/analytics/inventory-health
+
+Purpose: Get overall health status of
+inventory across all SKUs.
+
+Parameters: None
+
+Example:
+GET /api/analytics/inventory-health
+
+Response:
+{
+  "total_skus": 50,
+  "healthy_count": 31,
+  "warning_count": 17,
+  "critical_count": 2,
+  "health_score": 82.5,
+  "stockout_risk_skus": [
+    {
+      "sku_id": "SKU-00195",
+      "sku_name": "Raw Materials Component 195",
+      "days_of_cover": 12.6
+    }
+  ]
+}
+
+Error Codes:
+- 500: Server error
+
+---
+
+## Endpoint 14: GET /api/analytics/reorder-alerts
+
+Purpose: Get list of SKUs that need
+to be reordered urgently.
+
+Parameters: None
+
+Example:
+GET /api/analytics/reorder-alerts
+
+Response:
+[
+  {
+    "sku_id": "SKU-00195",
+    "sku_name": "Raw Materials Component 195",
+    "current_stock": 2328,
+    "reorder_point": 5000,
+    "days_of_cover": 12.6,
+    "alert_level": "urgent"
+  }
+]
+
+Error Codes:
+- 500: Server error
+
+---
+
+## Endpoint 15: GET /api/analytics/supplier-summary
+
+Purpose: Get high level summary of
+all suppliers performance.
+
+Parameters: None
+
+Example:
+GET /api/analytics/supplier-summary
+
+Response:
+{
+  "total_suppliers": 200,
+  "avg_otif": 85.3,
+  "avg_fill_rate": 91.2,
+  "high_risk_count": 15,
+  "medium_risk_count": 45,
+  "low_risk_count": 140,
+  "top_performer": {
+    "supplier_id": "SUP-0143",
+    "supplier_name": "Cummins India",
+    "otif": 99.7
+  }
+}
+
+Error Codes:
+- 500: Server error
+
+---
+
+## Endpoint 16: GET /api/analytics/demand-accuracy
+
+Purpose: Get demand forecast accuracy
+metrics across all SKUs.
+
+Parameters: None
+
+Example:
+GET /api/analytics/demand-accuracy
+
+Response:
+{
+  "report_date": "2026-06-17",
+  "total_skus": 50,
+  "avg_accuracy": 81.6,
+  "excellent_count": 15,
+  "good_count": 20,
+  "needs_improvement_count": 15,
+  "skus": [
+    {
+      "sku_id": "SKU-00001",
+      "accuracy_pct": 87.7,
+      "accuracy_tier": "Good"
+    }
+  ]
+}
+
+Error Codes:
+- 500: Server error
+
+---
+
+## Endpoint 17: GET /api/supplier-actions
+
+Purpose: Get recommended actions for
+ALL 200 suppliers in a single response.
+Used by the global Recommended Actions
+page on the frontend.
+
+Parameters: None
+
+Example:
+GET /api/supplier-actions
+
+Response:
+[
+  {
+    "supplier_id": "SUP-0001",
+    "supplier_name": "Biotique",
+    "category": "Electronics",
+    "total_actions": 1,
+    "recommended_actions": [
+      {
+        "action": "Continue monitoring",
+        "reason": "All KPIs within range",
+        "urgency": "LOW",
+        "act_within": "Monitor"
+      }
+    ]
+  }
+]
+
+Urgency Levels:
+- URGENT: Act within 3 days
+- HIGH: Act within 1 week
+- MEDIUM: Act within 2 weeks
+- LOW: Monitor only
+
+Error Codes:
+- 500: Server error
