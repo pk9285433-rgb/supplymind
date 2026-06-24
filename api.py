@@ -28,8 +28,7 @@ def log_request(endpoint, latency_ms, row_count, status):
 # PostgreSQL connection
 import os
 engine = create_engine(
-    os.environ.get("DATABASE_URL",  "postgresql://postgres.mtgtxjahbovxgpummxfl:gKGFf2AgnNvEjDGw@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres")
-)
+    os.environ.get("DATABASE_URL", "postgresql://postgres.mtgtxjahbovxgpummxfl:gKGFf2AgnNvEjDGw@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres"))
 supplier_df=pd.read_sql("SELECT * FROM suppliers",engine)
 
 # FastAPI app
@@ -1269,37 +1268,32 @@ def supplier_segments(region: str = None,
         # Segmentation Logic
 
         def segment_supplier(row):
-
-            otif = row["avg_otif"]
-            quality = row["avg_quality_reject"]
-            contract = row["annual_contract_value_inr"]
-
-            # High Performing
-            if (
-                otif > 85 and
+            otif=row["avg_otif"]
+            quality=row["avg_quality_reject"]
+            contract=row["annual_contract_value_inr"]
+            #High Performing
+            if(
+                otif > 85 and 
                 quality < 2 and
                 contract < cost_median
             ):
                 return "High-Performing"
-
-            # Medium Performing
-            elif (
-                70 <= otif <= 85 and
-                2 <= quality <= 5
-            ):
-                return "Medium-Performing"
-
-            # Strategic
-            elif (
-                contract < (cost_median * 0.5) and
+            #Strategic(move this BEFORE Medium)
+            elif(
+                contract < (cost_medium * 0.5)
+                and
                 quality < 3
             ):
                 return "Strategic"
-
-            # Low Performing
+            #Medium Performing
+            elif(
+                70<=otif <= 85 and
+                2<=quality <= 5 
+            ):
+                return "Medium-Performing"
+            #low Performing
             else:
                 return "Low-Performing"
-
         df["segment"] = df.apply(segment_supplier, axis=1)
 
         # Performance Band Filter
