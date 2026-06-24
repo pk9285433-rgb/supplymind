@@ -1280,7 +1280,7 @@ def supplier_segments(region: str = None,
                 return "High-Performing"
             #Strategic(move this BEFORE Medium)
             elif(
-                contract < (cost_medium * 0.5)
+                contract < (cost_median * 0.5)
                 and
                 quality < 3
             ):
