@@ -1794,13 +1794,13 @@ def supplier_resilience():
                 switch_timeline = "1 month"
 
             results.append({
-                "sku_id": row["sku_id"],
+                  "sku_id": row["sku_id"],
                 "sku_name": row["sku_name"],
-                "primary_supplier_id": row["primary_supplier_id"],
-                "primary_supplier_name": row["primary_name"],
+                "primary_supplier_id": None if pd.isna(row["primary_supplier_id"]) else row["primary_supplier_id"],
+                "primary_supplier_name": None if pd.isna(row["primary_name"]) else row["primary_name"],
                 "has_backup": has_backup,
-                "backup_supplier_id": row["secondary_supplier_id"] if has_backup else None,
-                "backup_supplier_name": row["backup_name"] if has_backup else None,
+                "backup_supplier_id": None if pd.isna(row["secondary_supplier_id"]) else row["secondary_supplier_id"],
+                "backup_supplier_name": None if pd.isna(row["backup_name"]) else row["backup_name"],
                 "backup_capacity_available_pct": capacity_available,
                 "estimated_cost_increase": cost_increase,
                 "switch_timeline": switch_timeline,
@@ -1845,7 +1845,7 @@ def resilience_scenarios():
             FROM skus sk
             JOIN suppliers s
                 ON sk.primary_supplier_id = s.supplier_id
-            WHERE sk.is_single_source = true
+            WHERE sk.is_single_source = 1
         """, engine)
 
         value_threshold = df['annual_contract_value_inr'].median()
@@ -1891,3 +1891,4 @@ def resilience_scenarios():
         return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
+ 
