@@ -1731,8 +1731,8 @@ def supplier_resilience():
                 sk.primary_supplier_id,
                 sk.secondary_supplier_id,
                 sk.is_single_source,
-                s1.supplier_name as primary_name,
                 s1.annual_contract_value_inr,
+                s1.supplier_name as primary_name,
                 s2.supplier_name as backup_name
             FROM skus sk
             LEFT JOIN suppliers s1
