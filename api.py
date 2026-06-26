@@ -1720,5 +1720,174 @@ def diversification_recommendations():
         return {
             "error": str(e)
         }
+@app.get("/api/analytics/supplier-resilience")
+def supplier_resilience():
+    start = time.time()
+    try:
+        df = pd.read_sql("""
+            SELECT
+                sk.sku_id,
+                sk.sku_name,
+                sk.primary_supplier_id,
+                sk.secondary_supplier_id,
+                sk.is_single_source,
+                s1.supplier_name as primary_name,
+                s1.annual_contract_value_inr,
+                s2.supplier_name as backup_name
+            FROM skus sk
+            LEFT JOIN suppliers s1
+                ON sk.primary_supplier_id = s1.supplier_id
+            LEFT JOIN suppliers s2
+                ON sk.secondary_supplier_id = s2.supplier_id
+        """, engine)
+
+        # Get capacity utilization per supplier
+        capacity_df = pd.read_sql("""
+            SELECT supplier_id,
+                   AVG(capacity_utilization_pct) as avg_capacity
+            FROM supplier_performance
+            GROUP BY supplier_id
+        """, engine)
+
+        capacity_dict = dict(zip(
+            capacity_df["supplier_id"],
+            capacity_df["avg_capacity"]
+        ))
+
+        value_threshold = df['annual_contract_value_inr'].median()
+
+        results = []
+        for _, row in df.iterrows():
+            has_backup = pd.notna(row['secondary_supplier_id'])
+            backup_capacity = capacity_dict.get(
+                row['secondary_supplier_id'], 0) if has_backup else 0
+            primary_capacity = capacity_dict.get(
+                row['primary_supplier_id'], 0)
+
+            # Resilience score calculation (1-10)
+            score = 10
+            if row['is_single_source']:
+                score -= 5
+            if not has_backup:
+                score -= 3
+            if backup_capacity > 90:
+                score -= 1
+            if row['annual_contract_value_inr'] > value_threshold:
+                score -= 1
+            score = max(score, 1)
+
+            # Capacity available at backup
+            capacity_available = round(100 - backup_capacity, 1) if has_backup else 0
+
+            # Cost increase estimate (more critical = higher switching cost)
+            if not has_backup:
+                cost_increase = "N/A - No backup"
+                switch_timeline = "N/A - No backup available"
+            elif capacity_available > 50:
+                cost_increase = "10%"
+                switch_timeline = "1 week"
+            elif capacity_available > 20:
+                cost_increase = "20%"
+                switch_timeline = "2-3 weeks"
+            else:
+                cost_increase = "30%"
+                switch_timeline = "1 month"
+
+            results.append({
+                "sku_id": row["sku_id"],
+                "sku_name": row["sku_name"],
+                "primary_supplier_id": row["primary_supplier_id"],
+                "primary_supplier_name": row["primary_name"],
+                "has_backup": has_backup,
+                "backup_supplier_id": row["secondary_supplier_id"] if has_backup else None,
+                "backup_supplier_name": row["backup_name"] if has_backup else None,
+                "backup_capacity_available_pct": capacity_available,
+                "estimated_cost_increase": cost_increase,
+                "switch_timeline": switch_timeline,
+                "resilience_score": score,
+                "is_critical": bool(row['is_single_source'] and row['annual_contract_value_inr'] > value_threshold)
+            })
+
+        # Sort by resilience score (lowest = most urgent)
+        results.sort(key=lambda x: x['resilience_score'])
+
+        critical_no_backup = [
+            r for r in results
+            if not r['has_backup'] and r['is_critical']
+        ]
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-resilience", latency, len(results), "200")
+
+        return {
+            "total_skus_analyzed": len(results),
+            "critical_no_backup_count": len(critical_no_backup),
+            "critical_no_backup_alerts": critical_no_backup[:10],
+            "resilience_data": results
+        }
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("supplier-resilience", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
+@app.get("/api/analytics/resilience-scenarios")
+def resilience_scenarios():
+    start = time.time()
+    try:
+        # Get critical suppliers (single source, high value)
+        df = pd.read_sql("""
+            SELECT
+                sk.sku_id, sk.sku_name,
+                sk.primary_supplier_id,
+                sk.is_single_source,
+                s.annual_contract_value_inr,
+                s.supplier_name
+            FROM skus sk
+            JOIN suppliers s
+                ON sk.primary_supplier_id = s.supplier_id
+            WHERE sk.is_single_source = true
+        """, engine)
+
+        value_threshold = df['annual_contract_value_inr'].median()
+        critical_skus = df[
+            df['annual_contract_value_inr'] > value_threshold
+        ]
+
+        scenarios = [
+            {
+                "scenario_name": "Critical Supplier Failure",
+                "probability_pct": 5,
+                "affected_skus": len(critical_skus),
+                "impact": f"{len(critical_skus)} SKUs at risk of stockout",
+                "recovery_timeline": "2-4 weeks (find new supplier + onboard)",
+                "severity": "HIGH"
+            },
+            {
+                "scenario_name": "Logistics Provider Failure",
+                "probability_pct": 3,
+                "affected_skus": len(df),
+                "impact": "Delivery delays across all active shipments",
+                "recovery_timeline": "1-2 weeks (switch logistics partner)",
+                "severity": "MEDIUM"
+            },
+            {
+                "scenario_name": "Multiple Supplier Failure",
+                "probability_pct": 1,
+                "affected_skus": len(critical_skus) * 2,
+                "impact": "Severe supply chain disruption across categories",
+                "recovery_timeline": "1-3 months (full sourcing strategy overhaul)",
+                "severity": "CRITICAL"
+            }
+        ]
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("resilience-scenarios", latency, len(scenarios), "200")
+
+        return {"scenarios": scenarios}
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("resilience-scenarios", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
