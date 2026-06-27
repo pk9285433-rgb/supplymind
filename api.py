@@ -1910,10 +1910,12 @@ def governance_status():
         sku_df = pd.read_sql("""
             SELECT
     sk.primary_supplier_id,
-    BOOL_OR(sk.is_single_source) AS has_single_source_sku,
-    SUM(sk.annual_contract_value_inr) AS total_value
+    MAX(sk.is_single_source) AS has_single_source_sku,
+    SUM(s.annual_contract_value_inr) AS total_value
 FROM skus sk
-GROUP BY sk.primary_supplier_id
+JOIN suppliers s
+    ON sk.primary_supplier_id = s.supplier_id
+GROUP BY sk.primary_supplier_id;
         """, engine)
 
         single_source_dict = dict(zip(
@@ -1930,7 +1932,7 @@ GROUP BY sk.primary_supplier_id
         def classify_status(row):
             otif = row['avg_otif']
             quality = row['avg_quality_reject']
-            is_single = single_source_dict.get(row['supplier_id'], False)
+            is_single = single_source_dict.get(row['supplier_id'], 0) == 1
             value = value_dict.get(row['supplier_id'], 0)
 
             is_critical_supplier = is_single and value > value_threshold
