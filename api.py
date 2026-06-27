@@ -1889,6 +1889,138 @@ def resilience_scenarios():
         latency = round((time.time()-start)*1000, 2)
         log_request("resilience-scenarios", latency, 0, f"ERROR:{str(e)}")
         return {"error": str(e)}
+@app.get("/api/analytics/governance-status")
+def governance_status():
+    start = time.time()
+    try:
+        # Get all suppliers with risk and backup data
+        sup_df = pd.read_sql("""
+            SELECT
+                s.supplier_id,
+                s.supplier_name,
+                AVG(sp.otif_percentage) as avg_otif,
+                AVG(sp.quality_reject_rate_pct) as avg_quality_reject
+            FROM suppliers s
+            JOIN supplier_performance sp
+                ON s.supplier_id = sp.supplier_id
+            GROUP BY s.supplier_id, s.supplier_name
+        """, engine)
+
+        # Get single source flag from SKUs
+        sku_df = pd.read_sql("""
+            SELECT
+    sk.primary_supplier_id,
+    BOOL_OR(sk.is_single_source) AS has_single_source_sku,
+    SUM(sk.annual_contract_value_inr) AS total_value
+FROM skus sk
+GROUP BY sk.primary_supplier_id
+        """, engine)
+
+        single_source_dict = dict(zip(
+            sku_df["primary_supplier_id"],
+            sku_df["has_single_source_sku"]
+        ))
+        value_dict = dict(zip(
+            sku_df["primary_supplier_id"],
+            sku_df["total_value"]
+        ))
+
+        value_threshold = sku_df['total_value'].median()
+
+        def classify_status(row):
+            otif = row['avg_otif']
+            quality = row['avg_quality_reject']
+            is_single = single_source_dict.get(row['supplier_id'], False)
+            value = value_dict.get(row['supplier_id'], 0)
+
+            is_critical_supplier = is_single and value > value_threshold
+
+            if otif < 70 or quality > 5:
+                if is_critical_supplier:
+                    return "RED"
+                return "YELLOW"
+            elif otif < 85 or quality > 2:
+                return "YELLOW"
+            else:
+                return "GREEN"
+
+        sup_df['status'] = sup_df.apply(classify_status, axis=1)
+
+        red_count = len(sup_df[sup_df['status'] == 'RED'])
+        yellow_count = len(sup_df[sup_df['status'] == 'YELLOW'])
+        green_count = len(sup_df[sup_df['status'] == 'GREEN'])
+        total = len(sup_df)
+        if total == 0:
+           return {"error": "No suppliers found"}
+
+        red_suppliers = sup_df[sup_df['status'] == 'RED'][
+            ['supplier_id', 'supplier_name', 'avg_otif', 'avg_quality_reject']
+        ].to_dict(orient='records')
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("governance-status", latency, total, "200")
+
+        return {
+            "total_suppliers": total,
+            "health_summary": {
+                "red_pct": round(red_count/total*100, 1),
+                "yellow_pct": round(yellow_count/total*100, 1),
+                "green_pct": round(green_count/total*100, 1),
+                "red_count": red_count,
+                "yellow_count": yellow_count,
+                "green_count": green_count
+            },
+            "critical_alerts": red_suppliers,
+            "escalation_required": red_count > 0
+        }
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("governance-status", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
+escalation_log = {}
+
+@app.post("/api/analytics/escalation/{supplier_id}")
+def trigger_escalation(supplier_id: str, level: str = "RED"):
+    start = time.time()
+    try:
+        from datetime import datetime, timedelta
+
+        escalation_log[supplier_id] = {
+            "level": level,
+            "triggered_at": str(datetime.now()),
+            "pm_notified": True if level == "RED" else False,
+            "action_deadline": str(
+                datetime.now() + timedelta(hours=1)
+            ) if level == "RED" else str(
+                datetime.now() + timedelta(days=7)
+            ),
+            "status": "open"
+        }
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("escalation-trigger", latency, 1, "200")
+
+        return {
+            "supplier_id": supplier_id,
+            "escalation_level": level,
+            "pm_notified": escalation_log[supplier_id]["pm_notified"],
+            "action_deadline": escalation_log[supplier_id]["action_deadline"],
+            "message": f"Escalation triggered for {supplier_id} at {level} level"
+        }
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("escalation-trigger", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
+
+
+@app.get("/api/analytics/escalations")
+def get_all_escalations():
+    return {
+        "total_escalations": len(escalation_log),
+        "escalations": escalation_log
+    }
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
  
