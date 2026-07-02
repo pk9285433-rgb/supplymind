@@ -2108,6 +2108,54 @@ def supplier_scorecard_weighted(supplier_id: str):
         latency = round((time.time()-start)*1000, 2)
         log_request("scorecard-weighted", latency, 0, f"ERROR:{str(e)}")
         return {"error": str(e)}
+@app.get("/api/analytics/otif-drift/{supplier_id}")
+def otif_drift(supplier_id: str):
+    start = time.time()
+    try:
+        df = pd.read_sql("""
+            SELECT month, otif_percentage
+            FROM supplier_performance
+            WHERE supplier_id = %(sid)s
+            ORDER BY month DESC
+            LIMIT 9
+        """, engine, params={"sid": supplier_id})
+
+        if len(df) < 2:
+            return {"detail": "Insufficient data"}
+
+        df = df.sort_values('month')
+        otif_values = df['otif_percentage'].tolist()
+
+        # 8 week moving average baseline
+        baseline = round(sum(otif_values[:-1]) / len(otif_values[:-1]), 2)
+        current = round(otif_values[-1], 2)
+        change = round(current - baseline, 2)
+        drift_detected = change < -5
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("otif-drift", latency, len(df), "200")
+
+        return {
+            "supplier_id": supplier_id,
+            "baseline_otif": baseline,
+            "current_otif": current,
+            "change_pct": change,
+            "drift_detected": drift_detected,
+            "alert_level": "RED" if drift_detected and current < 70
+                          else "YELLOW" if drift_detected
+                          else "GREEN",
+            "action_required": "Investigate supplier immediately" if drift_detected
+                              else "No action required",
+            "otif_history": [
+                {"month": str(row["month"]), "otif": round(float(row["otif_percentage"]), 1)}
+                for _, row in df.iterrows()
+            ]
+        }
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("otif-drift", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
  
