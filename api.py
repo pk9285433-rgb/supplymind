@@ -2023,6 +2023,91 @@ def get_all_escalations():
         "total_escalations": len(escalation_log),
         "escalations": escalation_log
     }
+@app.get("/api/analytics/supplier-scorecard-weighted/{supplier_id}")
+def supplier_scorecard_weighted(supplier_id: str):
+    start = time.time()
+    try:
+        # Get performance data
+        perf_df = pd.read_sql("""
+            SELECT
+                AVG(otif_percentage) as avg_otif,
+                AVG(quality_reject_rate_pct) as avg_quality,
+                AVG(fill_rate_pct) as avg_fill
+            FROM supplier_performance
+            WHERE supplier_id = %(sid)s
+        """, engine, params={"sid": supplier_id})
+
+        if perf_df.empty:
+            return {"detail": "Not found"}
+
+        p = perf_df.iloc[0].to_dict()
+        otif = float(p.get("avg_otif") or 0)
+        quality = float(p.get("avg_quality") or 0)
+        fill = float(p.get("avg_fill") or 0)
+
+        # Check backup availability
+        sku_df = pd.read_sql("""
+            SELECT COUNT(*) as backup_count
+            FROM skus
+            WHERE primary_supplier_id = %(sid)s
+            AND secondary_supplier_id IS NOT NULL
+            AND secondary_supplier_id<> 'NONE'
+        """, engine, params={"sid": supplier_id})
+
+        has_backup = int(sku_df.iloc[0]["backup_count"]) > 0
+
+        # Weighted scorecard calculation
+        otif_score = otif
+        risk_score = max(0, 100 - (quality * 10))
+        resilience_score = 100 if has_backup else 0
+        compliance_score = 80
+
+        overall_score = round(
+            (otif_score * 0.40) +
+            (risk_score * 0.30) +
+            (resilience_score * 0.20) +
+            (compliance_score * 0.10), 1
+        )
+
+        if overall_score >= 90:
+            tier = "Tier 1 — Excellent"
+            action = "Increase order volume"
+        elif overall_score >= 70:
+            tier = "Tier 2 — Good"
+            action = "Maintain current relationship"
+        elif overall_score >= 50:
+            tier = "Tier 3 — At Risk"
+            action = "Increase monitoring frequency"
+        else:
+            tier = "Tier 4 — Critical"
+            action = "Activate backup supplier, prepare transition"
+
+        latency = round((time.time()-start)*1000, 2)
+        log_request("scorecard-weighted", latency, 1, "200")
+
+        return {
+            "supplier_id": supplier_id,
+            "scores": {
+                "otif_score": round(otif_score, 1),
+                "risk_score": round(risk_score, 1),
+                "resilience_score": resilience_score,
+                "compliance_score": compliance_score
+            },
+            "weights": {
+                "otif_weight": "40%",
+                "risk_weight": "30%",
+                "resilience_weight": "20%",
+                "compliance_weight": "10%"
+            },
+            "overall_score": overall_score,
+            "performance_tier": tier,
+            "recommended_action": action
+        }
+
+    except Exception as e:
+        latency = round((time.time()-start)*1000, 2)
+        log_request("scorecard-weighted", latency, 0, f"ERROR:{str(e)}")
+        return {"error": str(e)}
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
  
